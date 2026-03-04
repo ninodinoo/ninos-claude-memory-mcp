@@ -65,20 +65,21 @@ Your project/
 
 ### ⚡ One-line setup (recommended)
 
-No clone. No build step. Just add this to `~/.claude/settings.json`:
+Run this in your terminal — no clone, no config file editing required:
 
-```json
-{
-  "mcpServers": {
-    "claude-memory": {
-      "command": "npx",
-      "args": ["-y", "github:ninodinoo/ninos-claude-memory-mcp"]
-    }
-  }
-}
+```bash
+claude mcp add ninos-claude-memory -s user -- npx -y github:ninodinoo/ninos-claude-memory-mcp
 ```
 
-Claude Code will download, build, and run the server automatically on first use. Restart Claude Code after saving.
+Claude Code downloads, builds, and connects to the server automatically.
+
+Verify it's running:
+
+```bash
+claude mcp list
+```
+
+You should see `ninos-claude-memory: ... ✓ Connected`. Then use `/mcp` inside Claude Code to confirm.
 
 ---
 
@@ -86,37 +87,23 @@ Claude Code will download, build, and run the server automatically on first use.
 
 ```bash
 git clone https://github.com/ninodinoo/ninos-claude-memory-mcp.git
-cd claude-memory-mcp
+cd ninos-claude-memory-mcp
 npm install && npm run build
 ```
 
-Then add to `~/.claude/settings.json`:
+Then register it:
 
-```json
-{
-  "mcpServers": {
-    "claude-memory": {
-      "command": "node",
-      "args": ["/absolute/path/to/claude-memory-mcp/dist/index.js"]
-    }
-  }
-}
+```bash
+claude mcp add ninos-claude-memory -s user -- node /absolute/path/to/ninos-claude-memory-mcp/dist/index.js
 ```
 
-<details>
-<summary>Platform-specific path examples</summary>
+---
 
-**Windows:**
-```json
-"args": ["C:/Users/yourname/claude-memory-mcp/dist/index.js"]
-```
+### Restart Claude Code
 
-**macOS / Linux:**
-```json
-"args": ["/home/yourname/claude-memory-mcp/dist/index.js"]
-```
+After adding the server, restart Claude Code. Use `/mcp` to confirm the server appears and is connected.
 
-</details>
+---
 
 ---
 
