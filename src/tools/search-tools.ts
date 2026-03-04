@@ -1,8 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import fs from "fs/promises";
-import path from "path";
-import { getMemoryRoot, readEntry, listTopics } from "../memory/store.js";
+import { getMemoryRoot, readEntry, listTopics, ensureDir } from "../memory/store.js";
+import { scoreTopicsForTask } from "../memory/relevance.js";
 
 export function registerSearchTools(server: McpServer): void {
 
@@ -16,15 +15,56 @@ export function registerSearchTools(server: McpServer): void {
       inputSchema: z.object({
         query: z.string().describe("Suchbegriff (case-insensitive)"),
         maxResults: z.number().optional().default(5).describe("Maximale Anzahl Ergebnisse"),
+        mode: z.enum(["search", "suggest"]).optional().default("search").describe("search: Volltextsuche, suggest: Relevanz-basierte Vorschläge für eine Aufgabe"),
       }),
     },
-    async ({ query, maxResults }) => {
+    async ({ query, maxResults, mode }) => {
+      if (!query.trim()) {
+        return { content: [{ type: "text" as const, text: "Bitte einen Suchbegriff angeben." }] };
+      }
+
+      await ensureDir(getMemoryRoot());
+
+      // Suggest-Modus: Relevanz-Ranking
+      if (mode === "suggest") {
+        const allTopics = await listTopics();
+        if (allTopics.length === 0) {
+          return { content: [{ type: "text" as const, text: "Noch keine Memory-Einträge vorhanden." }] };
+        }
+
+        const scored = await scoreTopicsForTask(query);
+        const top = scored.slice(0, maxResults);
+
+        if (top.length === 0) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Keine relevanten Memory-Einträge für diese Aufgabe gefunden.\n\nVerfügbare Topics:\n${allTopics.map(t => `- ${t}`).join("\n")}`,
+              },
+            ],
+          };
+        }
+
+        const lines = [
+          `## Empfohlene Topics für: "${query}"`,
+          "",
+          "Lade diese Topics mit memory_load in dieser Reihenfolge:",
+          "",
+          ...top.map((s, i) => `${i + 1}. **${s.topic}** (Score: ${s.score.toFixed(1)}) — ${s.reason}`),
+        ];
+
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      }
+
+      // Search-Modus: Volltextsuche
       const topics = await listTopics();
       if (topics.length === 0) {
-        return { content: [{ type: "text", text: "Keine Memory-Einträge vorhanden." }] };
+        return { content: [{ type: "text" as const, text: "Keine Memory-Einträge vorhanden." }] };
       }
 
       const lowerQuery = query.toLowerCase();
+      const escapedQuery = lowerQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const results: { topic: string; excerpt: string; score: number }[] = [];
 
       for (const topic of topics) {
@@ -32,22 +72,27 @@ export function registerSearchTools(server: McpServer): void {
         if (!entry) continue;
 
         const lowerContent = entry.content.toLowerCase();
-        if (!lowerContent.includes(lowerQuery)) continue;
+        if (!lowerContent.includes(lowerQuery) && !topic.toLowerCase().includes(lowerQuery)) continue;
 
-        // Einfaches Scoring: Häufigkeit des Treffers
-        const occurrences = (lowerContent.match(new RegExp(lowerQuery, "g")) ?? []).length;
+        const occurrences = (lowerContent.match(new RegExp(escapedQuery, "g")) ?? []).length;
+        const topicBonus = topic.toLowerCase().includes(lowerQuery) ? 3 : 0;
 
-        // Kontext-Ausschnitt rund um ersten Treffer
+        // Kontext-Ausschnitt
         const idx = lowerContent.indexOf(lowerQuery);
-        const start = Math.max(0, idx - 80);
-        const end = Math.min(entry.content.length, idx + query.length + 80);
-        const excerpt = (start > 0 ? "…" : "") + entry.content.slice(start, end) + (end < entry.content.length ? "…" : "");
+        let excerpt = "";
+        if (idx >= 0) {
+          const start = Math.max(0, idx - 80);
+          const end = Math.min(entry.content.length, idx + query.length + 80);
+          excerpt = (start > 0 ? "\u2026" : "") + entry.content.slice(start, end) + (end < entry.content.length ? "\u2026" : "");
+        } else {
+          excerpt = entry.content.slice(0, 160) + (entry.content.length > 160 ? "\u2026" : "");
+        }
 
-        results.push({ topic, excerpt, score: occurrences + entry.meta.accessCount * 0.1 });
+        results.push({ topic, excerpt, score: occurrences + topicBonus + entry.meta.accessCount * 0.1 });
       }
 
       if (results.length === 0) {
-        return { content: [{ type: "text", text: `Keine Ergebnisse für '${query}' gefunden.` }] };
+        return { content: [{ type: "text" as const, text: `Keine Ergebnisse für '${query}' gefunden.` }] };
       }
 
       results.sort((a, b) => b.score - a.score);
@@ -58,7 +103,7 @@ export function registerSearchTools(server: McpServer): void {
         .join("\n\n");
 
       return {
-        content: [{ type: "text", text: `Suchergebnisse für '${query}':\n\n${output}` }],
+        content: [{ type: "text" as const, text: `Suchergebnisse für '${query}':\n\n${output}` }],
       };
     }
   );

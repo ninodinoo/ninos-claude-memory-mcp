@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧠 ninos-claude-memory-mcp
+# ninos-claude-memory-mcp
 
 **Stop losing your mind. Give Claude one.**
 
@@ -31,16 +31,16 @@ This is **context rot**. And it gets worse the larger your project becomes.
 
 ## The Solution
 
-`claude-memory-mcp` gives Claude a **persistent memory layer** that lives inside your project. Claude can save, retrieve, and search knowledge across sessions — loading only what's relevant to the current task, never bloating the context window.
+`ninos-claude-memory-mcp` gives Claude a **persistent memory layer** that lives inside your project. Claude can save, retrieve, and search knowledge across sessions — loading only what's relevant to the current task, never bloating the context window.
 
 ```
 Your project/
-└── .claude-memory/        ← managed automatically by the plugin
-    ├── architecture.md    ← how the system is built
-    ├── decisions.md       ← why things are the way they are
-    ├── current-task.md    ← where we left off
-    ├── entities/          ← key components and modules
-    └── sessions/          ← archived session summaries
+└── .claude-memory/        <- managed automatically by the plugin
+    ├── architecture.md    <- how the system is built
+    ├── decisions.md       <- why things are the way they are
+    ├── current-task.md    <- where we left off
+    ├── entities/          <- key components and modules
+    └── sessions/          <- archived session summaries
 ```
 
 ---
@@ -49,21 +49,21 @@ Your project/
 
 | | Feature | Description |
 |--|---------|-------------|
-| 🔁 | **Persistent memory** | Knowledge survives session resets and context limits |
-| 🎯 | **Smart loading** | `context_suggest` ranks topics by relevance to your current task |
-| 💾 | **Session checkpoints** | Save progress mid-session — nothing gets lost |
-| 📦 | **Session archiving** | Compress and archive sessions automatically |
-| 🔍 | **Full-text search** | Find anything across all memory entries |
-| 📊 | **Memory stats** | Track usage, size, and health of your memory store |
-| 🚀 | **Project detection** | `memory_init` auto-detects Node, Rust, Go, Python and bootstraps a sensible structure |
-| 📁 | **Human-readable files** | Plain Markdown — edit manually anytime, commit to share with your team |
-| 🔒 | **100% local** | No external services, no cloud, no accounts required |
+| **Auto-Start** | **SessionStart Hook** | Automatically loads current task and topic list when you start a session |
+| **Auto-Init** | **Zero setup** | Memory structure is created automatically on first use — no `init` needed |
+| **Persistent** | **Persistent memory** | Knowledge survives session resets and context limits |
+| **Smart** | **Relevance scoring** | Trigram + substring matching ranks topics by relevance (works in any language) |
+| **Save** | **Session checkpoints** | Save progress mid-session — nothing gets lost |
+| **Archive** | **Auto-compress** | Old sessions are automatically compressed when you end a session |
+| **Search** | **Full-text search** | Find anything across all memory entries |
+| **Files** | **Human-readable files** | Plain Markdown — edit manually anytime, commit to share with your team |
+| **Local** | **100% local** | No external services, no cloud, no accounts required |
 
 ---
 
 ## Installation
 
-### ⚡ One-line setup (recommended)
+### One-line setup (recommended)
 
 Run this in your terminal — no clone, no config file editing required:
 
@@ -79,11 +79,11 @@ Verify it's running:
 claude mcp list
 ```
 
-You should see `ninos-claude-memory: ... ✓ Connected`. Then use `/mcp` inside Claude Code to confirm.
+You should see `ninos-claude-memory: ... Connected`. Then use `/mcp` inside Claude Code to confirm.
 
 ---
 
-### 🔧 Manual install (for development or offline use)
+### Manual install (for development or offline use)
 
 ```bash
 git clone https://github.com/ninodinoo/ninos-claude-memory-mcp.git
@@ -105,8 +105,6 @@ After adding the server, restart Claude Code. Use `/mcp` to confirm the server a
 
 ---
 
----
-
 ## Project setup
 
 Add this snippet to your project's `CLAUDE.md` so Claude follows the memory workflow automatically:
@@ -114,55 +112,51 @@ Add this snippet to your project's `CLAUDE.md` so Claude follows the memory work
 ```markdown
 ## Memory
 
-At the start of every session:
-1. Call `memory_list` to see what exists
-2. Call `context_suggest` with your current task to find relevant topics
-3. Call `memory_load` on the suggested topics
+The SessionStart hook automatically loads current-task and topic list at the start of every session.
 
 During work:
 - Call `checkpoint` after every significant change
-- Call `memory_save("decisions", ...)` for architectural or design choices
+- Call `memory_save("decisions", "...", [], "append")` for architectural or design choices
+- Call `memory_search("query", 5, "suggest")` to find relevant topics for your current task
 
 At the end of every session:
-- Call `session_summary` to archive before context fills up
+- Call `session_end` to archive before context fills up
 ```
 
 ---
 
-## Available Tools
+## Available Tools (5)
 
 ### Core memory
 
 | Tool | Description |
 |------|-------------|
-| `memory_init` | Auto-detect project type and bootstrap memory structure |
-| `memory_load(topic)` | Load a memory entry by topic |
-| `memory_save(topic, content, tags?)` | Save or overwrite a memory entry |
-| `memory_append(topic, content)` | Append to an entry without overwriting |
-| `memory_delete(topic)` | Delete a memory entry |
-| `memory_list` | List all existing topics |
+| `memory_load(topic?)` | Without topic: shows all topics + stats + recent changes. With topic: loads the entry |
+| `memory_save(topic, content, tags?, mode?)` | Save (`"write"`), append (`"append"`), or delete (`"delete"`) a memory entry. Auto-initializes on first use |
 
 ### Search & discovery
 
 | Tool | Description |
 |------|-------------|
-| `memory_search(query, maxResults?)` | Full-text search across all entries |
-| `context_suggest(task, maxTopics?)` | AI-ranked topic suggestions for your current task |
+| `memory_search(query, maxResults?, mode?)` | `"search"`: full-text search. `"suggest"`: AI-ranked topic suggestions for your current task |
 
 ### Session management
 
 | Tool | Description |
 |------|-------------|
-| `checkpoint(summary, nextSteps?, blockers?)` | Save a progress snapshot |
-| `session_summary(accomplishments, decisions?, nextSession?)` | Archive the current session |
-| `memory_diff(since?)` | Show what changed since a point in time |
+| `checkpoint(summary, nextSteps?, blockers?)` | Save a progress snapshot to current-task |
+| `session_end(accomplishments, decisions?, nextSession?)` | Archive the current session + auto-compress sessions older than 7 days |
 
-### Maintenance
+---
 
-| Tool | Description |
-|------|-------------|
-| `memory_stats` | Show entry count, size, most accessed, recently changed |
-| `memory_compress(olderThanDays?)` | Compress old session archives to save space |
+## SessionStart Hook
+
+The plugin includes a **SessionStart hook** that automatically injects context when you start working:
+
+- **Current task**: Shows where you left off last session
+- **Topic list**: Lists all available memory entries
+
+The hook is registered in `.claude/settings.json` and fires on `UserPromptSubmit`. It reads directly from `.claude-memory/` — no MCP calls needed.
 
 ---
 

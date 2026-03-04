@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import fs from "fs/promises";
+import path from "path";
 import { writeEntry, readEntry, listTopics, getMemoryRoot, ensureDir } from "../memory/store.js";
 
 export function registerSessionTools(server: McpServer): void {
@@ -39,7 +41,6 @@ export function registerSessionTools(server: McpServer): void {
         blockers.forEach((b) => lines.push(`- ${b}`));
       }
 
-      // Checkpoint an bestehende current-task anhängen
       const existing = await readEntry("current-task");
       const newContent = existing
         ? `${existing.content}\n\n---\n\n${lines.join("\n")}`
@@ -48,17 +49,18 @@ export function registerSessionTools(server: McpServer): void {
       await writeEntry("current-task", newContent, ["session", "checkpoint"]);
 
       return {
-        content: [{ type: "text", text: `Checkpoint gespeichert (${now}).` }],
+        content: [{ type: "text" as const, text: `Checkpoint gespeichert (${now}).` }],
       };
     }
   );
 
   server.registerTool(
-    "session_summary",
+    "session_end",
     {
-      title: "Session zusammenfassen",
+      title: "Session beenden",
       description:
         "Erstellt eine komprimierte Zusammenfassung der Session und archiviert sie. " +
+        "Komprimiert automatisch Sessions älter als 7 Tage. " +
         "Rufe dies am Ende einer Arbeitssession auf, bevor der Context voll wird.",
       inputSchema: z.object({
         accomplishments: z.array(z.string()).describe("Was wurde erreicht"),
@@ -69,7 +71,7 @@ export function registerSessionTools(server: McpServer): void {
     async ({ accomplishments, decisions, nextSession }) => {
       await ensureDir(getMemoryRoot());
       const now = new Date().toISOString();
-      const dateStr = new Date().toLocaleDateString("de-DE");
+      const dateStr = now.slice(0, 10);
 
       const lines: string[] = [
         `## Session ${dateStr}`,
@@ -89,67 +91,93 @@ export function registerSessionTools(server: McpServer): void {
 
       const summaryContent = lines.join("\n");
 
-      // In sessions/DATUM speichern
-      const sessionKey = `sessions/${dateStr.replace(/\./g, "-")}`;
+      // Session archivieren
+      const timeStr = now.slice(11, 19).replace(/:/g, "-");
+      const sessionKey = `sessions/${dateStr}-${timeStr}`;
       await writeEntry(sessionKey, summaryContent, ["session", "summary"]);
 
-      // current-task resetten auf nächsten Start
+      // current-task resetten
       if (nextSession) {
         await writeEntry("current-task", `## Nächster Start\n\n${nextSession}`, ["session", "next"]);
       }
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Session zusammengefasst und unter '${sessionKey}' gespeichert.`,
-          },
-        ],
-      };
-    }
-  );
-
-  server.registerTool(
-    "memory_diff",
-    {
-      title: "Memory-Änderungen anzeigen",
-      description:
-        "Zeigt welche Memory-Einträge sich seit einem Zeitpunkt geändert haben. Standard: letzte 24 Stunden.",
-      inputSchema: z.object({
-        since: z.string().optional().describe("ISO-Datum als Startpunkt, z.B. '2025-01-15T00:00:00Z'. Standard: vor 24 Stunden."),
-      }),
-    },
-    async ({ since }) => {
-      await ensureDir(getMemoryRoot());
-      const sinceDate = since ? new Date(since) : new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const topics = await listTopics();
-
-      const changed: { topic: string; updated: string }[] = [];
-
-      for (const topic of topics) {
-        const entry = await readEntry(topic);
-        if (entry && new Date(entry.meta.updated) >= sinceDate) {
-          changed.push({ topic, updated: entry.meta.updated });
+      // Auto-Compress: Sessions älter als 7 Tage komprimieren
+      let compressInfo = "";
+      try {
+        const compressed = await compressOldSessions(7);
+        if (compressed > 0) {
+          compressInfo = `\n${compressed} alte Session(s) automatisch komprimiert.`;
         }
+      } catch {
+        // Compress-Fehler nicht propagieren
       }
 
-      changed.sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime());
-
-      if (changed.length === 0) {
-        return {
-          content: [{ type: "text", text: `Keine Änderungen seit ${sinceDate.toISOString()}.` }],
-        };
-      }
-
-      const lines = changed.map((c) => `- **${c.topic}** — ${c.updated}`);
       return {
         content: [
           {
-            type: "text",
-            text: `Geänderte Einträge seit ${sinceDate.toISOString()}:\n\n${lines.join("\n")}`,
+            type: "text" as const,
+            text: `Session zusammengefasst und unter '${sessionKey}' gespeichert.${compressInfo}`,
           },
         ],
       };
     }
   );
+}
+
+async function compressOldSessions(olderThanDays: number): Promise<number> {
+  const topics = await listTopics();
+  const sessionTopics = topics.filter((t) => t.startsWith("sessions/") && !t.includes("archive"));
+
+  if (sessionTopics.length === 0) return 0;
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - olderThanDays);
+
+  const oldSessions: { topic: string; content: string; updated: string }[] = [];
+
+  for (const topic of sessionTopics) {
+    const entry = await readEntry(topic);
+    if (!entry) continue;
+    if (new Date(entry.meta.updated) < cutoff) {
+      oldSessions.push({ topic, content: entry.content, updated: entry.meta.updated });
+    }
+  }
+
+  if (oldSessions.length === 0) return 0;
+
+  // Zusammenführen
+  oldSessions.sort((a, b) => a.updated.localeCompare(b.updated));
+  const archiveContent = oldSessions
+    .map((s) => `## ${s.updated.slice(0, 10)} — ${s.topic}\n\n${s.content}`)
+    .join("\n\n---\n\n");
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const archiveKey = `sessions/archive-${timestamp}`;
+  await writeEntry(archiveKey, archiveContent, ["archive", "compressed"]);
+
+  // Alte Sessions löschen
+  const root = getMemoryRoot();
+  const indexFile = path.join(root, "index.json");
+  let index: Record<string, string[]> = {};
+  try {
+    const raw = await fs.readFile(indexFile, "utf-8");
+    index = JSON.parse(raw);
+  } catch {
+    // index nicht vorhanden
+  }
+
+  for (const s of oldSessions) {
+    const parts = s.topic.split("/");
+    const filePath = path.join(root, ...parts) + ".md";
+    try {
+      await fs.unlink(filePath);
+    } catch {
+      // Datei existiert nicht
+    }
+    delete index[s.topic];
+  }
+
+  await fs.writeFile(indexFile, JSON.stringify(index, null, 2), "utf-8");
+
+  return oldSessions.length;
 }

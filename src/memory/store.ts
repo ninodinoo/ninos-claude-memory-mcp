@@ -114,9 +114,19 @@ export async function deleteEntry(topic: string): Promise<void> {
 
 function topicToPath(topic: string): string {
   // "architecture/decisions" -> .claude-memory/architecture/decisions.md
-  const parts = topic.split("/");
   const root = getMemoryRoot();
-  return path.join(root, ...parts) + ".md";
+  const rootResolved = path.resolve(root);
+  const parts = topic.split("/");
+  const resolved = path.resolve(root, ...parts) + ".md";
+  // Path-Traversal-Schutz: Pfad muss innerhalb von .claude-memory/ bleiben
+  if (!resolved.startsWith(rootResolved + path.sep)) {
+    throw new Error(`Ungültiger Topic-Pfad: '${topic}' führt außerhalb des Memory-Verzeichnisses.`);
+  }
+  // MAX_PATH-Schutz (Windows-Limit ~260 Zeichen)
+  if (resolved.length > 240) {
+    throw new Error(`Topic-Pfad zu lang (${resolved.length} Zeichen). Bitte kürzeren Topic-Namen verwenden.`);
+  }
+  return resolved;
 }
 
 function serializeEntry(entry: MemoryEntry): string {
@@ -154,4 +164,14 @@ async function updateIndex(topic: string, tags: string[]): Promise<void> {
   } catch {}
   index[topic] = tags;
   await fs.writeFile(indexFile, JSON.stringify(index, null, 2), "utf-8");
+}
+
+export async function memoryExists(): Promise<boolean> {
+  const indexFile = path.join(getMemoryRoot(), "index.json");
+  try {
+    await fs.access(indexFile);
+    return true;
+  } catch {
+    return false;
+  }
 }
