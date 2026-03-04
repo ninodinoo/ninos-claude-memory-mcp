@@ -2,6 +2,11 @@ node_modules/
 dist/
 .claude-memory/
 
+# Persoenliche Notizen / Dev-Artefakte
+ERKLAERUNG.txt
+TESTPLAN.md
+path-traversal-test.md
+
 # Claude Code interne Dateien
 CLAUDE.md
 .claude/

@@ -7,6 +7,11 @@
   "bin": {
     "ninos-claude-memory-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "README.md"
+  ],
   "author": "ninodinoo (https://github.com/ninodinoo)",
   "license": "MIT",
   "homepage": "https://github.com/ninodinoo/ninos-claude-memory-mcp",
